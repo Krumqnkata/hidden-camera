@@ -8,6 +8,8 @@ on:
 jobs:
   lint:
     runs-on: windows-latest
+    env:
+      PYTHONUTF8: "1"  # конзолата на runner-а е cp1252 -> кирилицата в изхода иначе гърми
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
