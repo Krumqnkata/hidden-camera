@@ -127,10 +127,11 @@ class SecuritySystem:
             "trigger": self._evaluate(now),
             "cameras": [
                 {"name": c.spec.name, "index": c.spec.index, "online": c.online,
-                 "motion_pct": round(c.motion_score, 2), "size": c.frame_size}
+                 "blank_picture": c.blank, "motion_pct": round(c.motion_score, 2), "size": c.frame_size}
                 for c in self.cameras
             ],
             "audio": {"online": bool(self.audio and self.audio.online),
+                      "muted": bool(self.audio and self.audio.muted),
                       "rms": round(self.audio.rms, 4) if self.audio else None},
             "uploads": {"targets": [u.key for u in self.uploads.uploaders],
                         "pending": self.uploads.pending_count, "online": self.uploads.online,
@@ -166,7 +167,7 @@ class SecuritySystem:
                 if trig:
                     self.last_trigger_ts = now
                     if trig != self.trigger_label and self.session:
-                        log.info("Тригер: %s", trig)
+                        log.debug("Тригер: %s", trig)
                     self.trigger_label = trig
 
                 if self.session is None:

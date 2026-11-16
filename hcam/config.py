@@ -111,7 +111,7 @@ class Config:
     # --- Детекция ---
     motion_threshold: int = 25
     motion_min_area_percent: float = 0.5
-    audio_threshold: float = 0.02
+    audio_threshold: float = 0.05
     idle_fps: float = 5.0
     record_fps: float = 15.0
     camera_warmup_seconds: float = 3.0

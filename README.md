@@ -89,7 +89,7 @@ setup.bat
 | `AUDIO_DEVICE_INDEX` | `None` | `None` = микрофон по подразбиране |
 | `MOTION_THRESHOLD` | `25` | мин. промяна на яркостта на пиксел (0–255) |
 | `MOTION_MIN_AREA_PERCENT` | `0.5` | % от кадъра, който трябва да се промени |
-| `AUDIO_THRESHOLD` | `0.02` | RMS праг (0–1) |
+| `AUDIO_THRESHOLD` | `0.05` | RMS праг (0–1) |
 | `POST_TRIGGER_SECONDS` | `15` | запис още N сек след последния тригер |
 | `MAX_CLIP_SECONDS` | `300` | дълги събития се режат на части по 5 мин |
 | `UPLOAD_METHOD` | `"apps script"` | `"apps script"` / `"google drive api"` / `"telegram"` / `"none"`; няколко със запетая |

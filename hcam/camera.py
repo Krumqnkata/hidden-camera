@@ -22,6 +22,8 @@ _BACKENDS = {
 MOTION_PROC_WIDTH = 320  # детекцията работи върху умалено копие -> минимален CPU
 REOPEN_DELAY = 5.0
 MAX_FAILED_READS = 25
+BLANK_STD = 8.0  # стандартно отклонение на яркостта под което кадърът се счита „празен“
+BLANK_SECONDS = 30.0
 
 
 class CameraWorker(threading.Thread):
@@ -51,6 +53,8 @@ class CameraWorker(threading.Thread):
         self.last_motion_ts = 0.0
         self.motion_score = 0.0  # % променени пиксели при последната проверка
         self.frame_size: tuple[int, int] | None = None  # (w, h)
+        self.blank = False  # кадърът е еднороден (камерата е изключена/закрита?)
+        self._blank_since: float | None = None
 
     # ---------------- публично API ----------------
     @property
@@ -92,11 +96,32 @@ class CameraWorker(threading.Thread):
                  self.spec.name, self.spec.index, w, h, fourcc_str.strip() or "?")
         return cap
 
+    def _check_blank(self, std: float, now: float) -> None:
+        """Предупреждава, ако кадърът е почти еднороден дълго време.
+
+        Типично: капаче/бутон за поверителност (Windows показва сив екран с иконка),
+        закрит обектив или пълна тъмнина. Само логва — не спира работата.
+        """
+        if std < BLANK_STD:
+            if self._blank_since is None:
+                self._blank_since = now
+            elif not self.blank and now - self._blank_since >= BLANK_SECONDS:
+                self.blank = True
+                log.warning("Камера '%s' вижда почти еднакъв кадър от %.0f с — изключена с бутон/капаче, "
+                            "закрита или е пълна тъмнина? Движение няма да се засича.",
+                            self.spec.name, now - self._blank_since)
+        else:
+            if self.blank:
+                log.info("Камера '%s' отново вижда нормална картина", self.spec.name)
+            self._blank_since = None
+            self.blank = False
+
     def _detect_motion(self, frame: np.ndarray, now: float) -> None:
         h, w = frame.shape[:2]
         scale = MOTION_PROC_WIDTH / float(w)
         small = cv2.resize(frame, (MOTION_PROC_WIDTH, max(1, int(h * scale))), interpolation=cv2.INTER_AREA)
         gray = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY)
+        self._check_blank(float(gray.std()), now)
         gray = cv2.GaussianBlur(gray, (21, 21), 0)
         prev = self._prev_gray
         self._prev_gray = gray

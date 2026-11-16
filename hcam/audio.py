@@ -16,6 +16,8 @@ from .config import Config
 log = logging.getLogger("hcam.audio")
 
 REOPEN_DELAY = 5.0
+SILENT_RMS = 1e-5  # под това = цифрова нула
+SILENT_SECONDS = 30.0
 
 
 class AudioMonitor(threading.Thread):
@@ -35,6 +37,8 @@ class AudioMonitor(threading.Thread):
         self._rec_queue: queue.Queue[np.ndarray] | None = None
         self._rec_lock = threading.Lock()
         self._stream_error = threading.Event()
+        self.muted = False  # микрофонът дава абсолютна тишина (mute бутон?)
+        self._silent_since: float | None = None
 
     # ---------------- запис ----------------
     def start_recording(self) -> queue.Queue[np.ndarray] | None:
@@ -66,6 +70,22 @@ class AudioMonitor(threading.Thread):
                 q.put_nowait(mono.copy())
             except queue.Full:
                 pass
+
+    def _check_silence(self, now: float) -> None:
+        """Истински микрофон никога не дава абсолютна нула. Нула = изключен с бутон (mute) или поверителност."""
+        if self.rms < SILENT_RMS:
+            if self._silent_since is None:
+                self._silent_since = now
+            elif not self.muted and now - self._silent_since >= SILENT_SECONDS:
+                self.muted = True
+                log.warning("Микрофонът дава пълна тишина от %.0f с — изключен с бутон (mute) или от "
+                            "Settings > Privacy > Microphone? Звук няма да се засича/записва.",
+                            now - self._silent_since)
+        else:
+            if self.muted:
+                log.info("Микрофонът отново дава звук")
+            self._silent_since = None
+            self.muted = False
 
     def _resolve_samplerate(self, sd) -> int:
         if self.cfg.audio_samplerate:
@@ -105,6 +125,7 @@ class AudioMonitor(threading.Thread):
                     log.info("Микрофон: '%s' @ %d Hz (праг RMS=%.3f)", dev["name"], sr, self.cfg.audio_threshold)
                     while not self._stop_event.is_set() and stream.active and not self._stream_error.is_set():
                         self._stop_event.wait(0.5)
+                        self._check_silence(time.monotonic())
                 if not self._stop_event.is_set():
                     log.warning("Аудио потокът спря неочаквано — рестартирам")
             except Exception as e:  # noqa: BLE001
