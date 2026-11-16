@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.ruff_cache/
+.pytest_cache/
+
+# Тайни — НИКОГА в git
+.env
+secrets/
+credentials.json
+token.json
+
+# Данни по време на работа
+recordings/
+state/
+app.log
+app.log.*
+bin/
+
+# Редактори / ОС
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini

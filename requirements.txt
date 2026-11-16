@@ -1,0 +1,14 @@
+# Python 3.12 / Windows 10-11
+opencv-python>=4.10,<5
+numpy>=1.26,<3
+sounddevice>=0.5,<1
+requests>=2.32,<3
+
+# Google Drive
+google-api-python-client>=2.150,<3
+google-auth>=2.35,<3
+google-auth-oauthlib>=1.2,<2
+google-auth-httplib2>=0.2,<1
+
+# ffmpeg бинарен файл (резервен вариант, ако няма ffmpeg в PATH)
+imageio-ffmpeg>=0.5.1,<1
