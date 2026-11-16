@@ -97,16 +97,17 @@ $ff = & $VenvPy -c "import sys; sys.path.insert(0, r'$Root'); from hcam.winutils
 if ($ff) { Ok $ff } else { Warn 'ffmpeg не е намерен — инсталирайте: winget install Gyan.FFmpeg' }
 
 # ---------------------------------------------------------------- 7. Google Drive
-Step 7 'Google Drive авторизация...'
+Step 7 'Връзка с Google Drive...'
+& $VenvPy (Join-Path $Root 'main.py') --setup-script --if-needed
 $cred = Join-Path $Root 'secrets\credentials.json'
 $tok = Join-Path $Root 'secrets\token.json'
-if ((Test-Path $cred) -and -not (Test-Path $tok)) {
+if (-not (Test-Path $cred)) {
+    # Google Drive API (разширено) не се ползва — нищо за правене
+} elseif (-not (Test-Path $tok)) {
     Write-Host '    Ще се отвори браузър — влезте с Google акаунта, в който да се качват клиповете.'
     & $VenvPy (Join-Path $Root 'main.py') --auth-gdrive
-} elseif (Test-Path $tok) {
-    Ok 'token.json вече съществува (за нов вход: python main.py --auth-gdrive)'
 } else {
-    Warn 'Липсва secrets\credentials.json — вижте README, раздел "Google Drive". После: .venv\Scripts\python main.py --auth-gdrive'
+    Ok 'token.json вече съществува (за нов вход: python main.py --auth-gdrive)'
 }
 
 # ---------------------------------------------------------------- 8. админ стъпка

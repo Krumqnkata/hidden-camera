@@ -16,7 +16,7 @@ from .merger import MergeWorker
 from .overlay import annotate
 from .recorder import RecordingSession
 from .upload_manager import UploadManager
-from .uploaders import GDriveUploader, TelegramUploader, Uploader, UploadError
+from .uploaders import AppsScriptUploader, GDriveUploader, TelegramUploader, Uploader, UploadError
 from .winutils import keep_system_awake
 
 log = logging.getLogger("hcam.core")
@@ -39,7 +39,9 @@ class SecuritySystem:
         if cfg.telegram_configured:
             self.telegram = TelegramUploader(cfg)
         for target in cfg.upload_targets:
-            if target == "gdrive":
+            if target == "gscript":
+                uploaders.append(AppsScriptUploader(cfg))
+            elif target == "gdrive":
                 uploaders.append(GDriveUploader(cfg))
             elif target == "telegram":
                 if self.telegram:

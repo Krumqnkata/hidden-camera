@@ -13,7 +13,7 @@
 | 📷 **1 или 2 камери** | Вградена (index 0) по подразбиране; USB камера с един флаг (`ENABLE_SECOND_CAMERA = True`) — MJPG + 1280x720 |
 | 🎬 **Синхронизиран запис** | видео с постоянни 15 FPS по стенния часовник + `.wav`; overlay с камера, дата, час и `[MOTION]`/`[AUDIO]`/`[BOTH]` |
 | ⚙️ **Фоново обединяване** | ffmpeg (H.264 + AAC) в отделна нишка с понижен приоритет → `recordings/YYYY-MM-DD/` |
-| ☁️ **Качване** | Google Drive (подпапки по дати) и/или Telegram (+ моментална снимка при тригер) |
+| ☁️ **Качване** | Google Drive през ваш линк — **без API ключове** (подпапки по дати) и/или Telegram (+ моментална снимка при тригер) |
 | 🛡️ **Устойчивост** | USB камерата/микрофонът могат да се изключат и включат; без интернет клиповете се пазят и качват по-късно; възстановяване след срив |
 | 👻 **Невидима работа** | `pythonw.exe`, без прозорци (и за ffmpeg), single-instance lock, автостарт + watchdog, пълен лог в `app.log` |
 
@@ -57,7 +57,7 @@ setup.bat
 3. създава `.env` от `.env.example`,
 4. разрешава достъп до камера/микрофон за десктоп приложения,
 5. проверява ffmpeg (идва автоматично с `imageio-ffmpeg`),
-6. пуска Google вход, ако има `secrets/credentials.json`,
+6. свързва Google Drive чрез линк (`--setup-script`, вижте по-долу),
 7. **с UAC (администратор):** powercfg настройки + задача в Task Scheduler,
 8. стартира приложението във фонов режим.
 
@@ -74,7 +74,7 @@ setup.bat
 ```bat
 .venv\Scripts\python main.py --list-devices   :: ID-та на камери и микрофони
 .venv\Scripts\python main.py --calibrate 30   :: % движение и RMS на живо — за настройка на праговете
-.venv\Scripts\python main.py --auth-gdrive    :: (пре)свързване с Google Drive
+.venv\Scripts\python main.py --setup-script   :: свързване с Google Drive (линк, без API)
 .venv\Scripts\python main.py --test-telegram  :: тестово съобщение
 ```
 
@@ -91,16 +91,39 @@ setup.bat
 | `MOTION_MIN_AREA_PERCENT` | `0.5` | % от кадъра, който трябва да се промени |
 | `AUDIO_THRESHOLD` | `0.02` | RMS праг (0–1) |
 | `POST_TRIGGER_SECONDS` | `15` | запис още N сек след последния тригер |
-| `MAX_CLIP_SECONDS` | `600` | дълги събития се режат на части |
-| `UPLOAD_METHOD` | `"google drive"` | `"google drive"` / `"telegram"` / `"both"` / `"none"` |
-| `GDRIVE_FOLDER` (.env) | празно | линк или ID на папка; празно → авто-папка "Hidden Camera" |
+| `MAX_CLIP_SECONDS` | `300` | дълги събития се режат на части по 5 мин |
+| `UPLOAD_METHOD` | `"apps script"` | `"apps script"` / `"google drive api"` / `"telegram"` / `"none"`; няколко със запетая |
+| `GDRIVE_SCRIPT_URL` / `_SECRET` (.env) | попълват се автоматично | от `--setup-script` |
+| `GDRIVE_FOLDER` (.env) | празно | само за `google drive api`: линк/ID на папка |
 | `DELETE_LOCAL_AFTER_UPLOAD` | `False` | трие локалния файл след успешно качване |
 | `LOCAL_RETENTION_DAYS` | `30` | трие **качени** клипове, по-стари от N дни |
 | `MIN_FREE_DISK_GB` | `2.0` | при малко място трие най-старите **качени** клипове |
 
 > 💡 Пуснете `--calibrate`, оставете стаята празна и тиха → вижте фоновите стойности → сложете праговете малко над тях.
 
-## ☁️ Google Drive
+## ☁️ Google Drive — чрез линк (без API ключове, по подразбиране)
+
+`UPLOAD_METHOD = "apps script"`. Нужни са само Google акаунт и 2 минути. Не трябва Google Cloud.
+
+```bat
+.venv\Scripts\python main.py --setup-script
+```
+
+Командата (`setup.bat` я пуска автоматично):
+
+1. генерира **таен ключ** и го записва в `.env`;
+2. отваря в Notepad готов `secrets\Code.gs` с ключа, а в браузъра — **script.new**;
+3. ти копираш кода (**Ctrl+A, Ctrl+C**), поставяш го в браузъра (**Ctrl+V**) и записваш (**Ctrl+S**);
+4. **Deploy → New deployment → ⚙ → Web app**, *Execute as:* **Me**, *Who has access:* **Anyone** → **Deploy** → **Authorize** → **Advanced → Go to … (unsafe) → Allow** (това е твоят собствен скрипт);
+5. копираш **Web app URL** (завършва на `/exec`) и го поставяш в конзолата. Командата проверява връзката и показва линк към папката **Hidden Camera** в твоя Drive.
+
+**Сигурност:** скриптът записва само ако заявката носи тайния ключ от `.env`. Само с линка никой не може да качи нищо.
+**Лимит:** Apps Script приема около 50 MB на заявка. Клипове над 30 MB се компресират автоматично до 480p, а `MAX_CLIP_SECONDS = 300` ги държи малки.
+**Промяна на кода по-късно:** *Deploy → Manage deployments → ✏ → Version: New version*. Така линкът остава същият.
+
+## ☁️ Google Drive API (разширено, по избор)
+
+`UPLOAD_METHOD = "google drive api"`. Няма лимит на размера, но иска Google Cloud проект.
 
 1. Отворете [Google Cloud Console](https://console.cloud.google.com/) → създайте проект (напр. *hidden-camera*).
 2. **APIs & Services → Library** → включете **Google Drive API**.
@@ -187,7 +210,8 @@ app.log                        ротиращ лог (5 × 5 MB)
 | Камерата е `offline` | друга програма (Teams/Zoom) я държи; проверете *Privacy → Camera*; опитайте `CAMERA_BACKEND = "MSMF"` |
 | Черно видео с USB камера | пробвайте друг USB порт (2 камери на един хъб = недостиг на честотна лента) |
 | Много фалшиви тригери | увеличете `MOTION_MIN_AREA_PERCENT` / `AUDIO_THRESHOLD` (вижте `--calibrate`) |
-| `Google токенът е невалиден` | приложението е в *Testing* режим → Publish app → `--auth-gdrive` |
+| `Грешен таен ключ` / `Apps Script иска вход` | пуснете `--setup-script` отново; при Deploy: *Who has access: **Anyone*** |
+| `Google токенът е невалиден` (API режим) | приложението е в *Testing* режим → Publish app → `--auth-gdrive` |
 | Нищо не се качва | `status.bat` → `uploads.pending`; `app.log` съдържа причината |
 
 ## ⚖️ Правна бележка

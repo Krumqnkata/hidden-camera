@@ -7,7 +7,8 @@ Motion (OpenCV) + Audio (sounddevice) детекция с OR логика, си�
 Употреба:
     pythonw main.py                 # фонов режим (без прозорец)
     python  main.py                 # с конзолен изход
-    python  main.py --auth-gdrive   # еднократна Google авторизация
+    python  main.py --setup-script  # свързване с Google Drive чрез линк (без API ключове)
+    python  main.py --auth-gdrive   # (разширено) Google Drive API авторизация
     python  main.py --test-telegram # тестово съобщение в Telegram
     python  main.py --list-devices  # списък с камери и микрофони
     python  main.py --calibrate 30  # показва % движение и RMS на живо (за прагове)
@@ -58,11 +59,18 @@ AUDIO_THRESHOLD = 0.02  # RMS амплитуда (0.0 - 1.0)
 IDLE_FPS = 5  # FPS в режим на изчакване (щади CPU/вентилатора)
 RECORD_FPS = 15  # FPS на записа
 POST_TRIGGER_SECONDS = 15  # колко секунди продължава записът след последния тригер
-MAX_CLIP_SECONDS = 600  # дълги събития се разделят на клипове по 10 мин
+MAX_CLIP_SECONDS = 300  # дълги събития се разделят на клипове по 5 мин (държи ги под лимита за качване)
 
 # ---- Качване ---------------------------------------------------------------
-UPLOAD_METHOD = "google drive"  # "google drive" | "telegram" | "both" | "none"
-# Линк или ID на Google Drive папка. Празно -> приложението създава "Hidden Camera" в My Drive.
+# "apps script"      -> Google Drive чрез ВАШ линк (без API ключове)  <- препоръчително
+# "google drive api" -> Google Drive чрез Google Cloud OAuth (разширено)
+# "telegram"         -> Telegram бот
+# "none"             -> само локално
+# Може и няколко: "apps script, telegram"
+UPLOAD_METHOD = "apps script"
+GDRIVE_SCRIPT_URL = os.getenv("GDRIVE_SCRIPT_URL", "")  # попълва се от --setup-script
+GDRIVE_SCRIPT_SECRET = os.getenv("GDRIVE_SCRIPT_SECRET", "")
+# Само за "google drive api": линк/ID на папка. Празно -> създава "Hidden Camera" в My Drive.
 GDRIVE_FOLDER = os.getenv("GDRIVE_FOLDER", "")
 GDRIVE_DATE_SUBFOLDERS = True  # подпапки YYYY-MM-DD и в Drive
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
@@ -113,6 +121,8 @@ def build_config():
         max_clip_seconds=MAX_CLIP_SECONDS,
         ffmpeg_path=FFMPEG_PATH,
         upload_method=UPLOAD_METHOD,
+        gdrive_script_url=GDRIVE_SCRIPT_URL,
+        gdrive_script_secret=GDRIVE_SCRIPT_SECRET,
         telegram_bot_token=TELEGRAM_BOT_TOKEN,
         telegram_chat_id=TELEGRAM_CHAT_ID,
         telegram_snapshot_on_trigger=TELEGRAM_SNAPSHOT_ON_TRIGGER,
@@ -175,6 +185,70 @@ def cmd_run(cfg) -> int:
     finally:
         lock.release()
     return 0
+
+
+def cmd_setup_script(cfg, only_if_needed: bool = False) -> int:
+    """Води потребителя стъпка по стъпка: таен ключ -> Code.gs -> Deploy -> линк -> проверка."""
+    import secrets as pysecrets
+    import time
+    import webbrowser
+
+    from hcam.config import set_env_var
+    from hcam.uploaders import AppsScriptUploader, UploadError
+
+    if only_if_needed and ("gscript" not in cfg.upload_targets or (cfg.gdrive_script_url and cfg.gdrive_script_secret)):
+        print("Google Drive линкът е настроен (или не се ползва) — пропускам.")
+        return 0
+
+    env_file = BASE_DIR / ".env"
+    if not env_file.exists() and (BASE_DIR / ".env.example").exists():
+        env_file.write_text((BASE_DIR / ".env.example").read_text(encoding="utf-8"), encoding="utf-8")
+
+    secret = cfg.gdrive_script_secret or pysecrets.token_urlsafe(24)
+    set_env_var(env_file, "GDRIVE_SCRIPT_SECRET", secret)
+    cfg.gdrive_script_secret = secret
+
+    template = (BASE_DIR / "apps_script" / "Code.gs").read_text(encoding="utf-8")
+    code_file = cfg.secrets_dir / "Code.gs"
+    code_file.write_text(template.replace("__HCAM_SECRET__", secret), encoding="utf-8")
+
+    print(
+        "\n=== Свързване с Google Drive (без API ключове) ===\n\n"
+        "Отварям Notepad с кода и браузър със script.google.com.\n\n"
+        "  1. В Notepad: Ctrl+A, Ctrl+C (копирай целия код).\n"
+        "  2. В браузъра: изтрий всичко в редактора, Ctrl+V, после Ctrl+S.\n"
+        "  3. Горе вдясно: Deploy -> New deployment -> зъбчето -> Web app.\n"
+        "        Execute as:      Me\n"
+        "        Who has access:  Anyone\n"
+        "     -> Deploy -> Authorize access -> избери акаунта ->\n"
+        "        Advanced -> Go to ... (unsafe) -> Allow   (това е твоят собствен скрипт)\n"
+        "  4. Копирай 'Web app URL' (завършва на /exec) и го постави тук.\n"
+    )
+    time.sleep(1)
+    try:
+        os.startfile(str(code_file))  # type: ignore[attr-defined]  # отваря в Notepad / редактор
+    except (AttributeError, OSError):
+        print(f"Отворете ръчно: {code_file}")
+    webbrowser.open("https://script.new")
+
+    while True:
+        url = input("Web app URL: ").strip().strip('"')
+        if not url:
+            print("Отказано. Пуснете отново по-късно: python main.py --setup-script")
+            return 1
+        if not (url.startswith("https://script.google.com/") and url.rstrip("/").endswith("/exec")):
+            print("  Линкът трябва да започва с https://script.google.com/ и да завършва на /exec. Опитай пак.")
+            continue
+        cfg.gdrive_script_url = url
+        try:
+            folder = AppsScriptUploader(cfg).ping()
+        except UploadError as e:
+            print(f"  ✖ Проверката не мина: {e}\n  Провери стъпка 3 и опитай пак (или Enter за изход).")
+            continue
+        set_env_var(env_file, "GDRIVE_SCRIPT_URL", url)
+        (cfg.state_dir / "gdrive_folder_link.txt").write_text(folder, encoding="utf-8")
+        print(f"\n✔ Готово! Клиповете ще се качват в:\n  {folder}\n")
+        return 0
 
 
 def cmd_auth_gdrive(cfg) -> int:
@@ -288,15 +362,19 @@ def main(argv: list[str]) -> int:
 
     p = argparse.ArgumentParser(description="Hidden Camera — Motion + Audio security recorder")
     g = p.add_mutually_exclusive_group()
-    g.add_argument("--auth-gdrive", action="store_true", help="еднократна Google Drive авторизация")
+    g.add_argument("--setup-script", action="store_true", help="свързване с Google Drive чрез линк (без API)")
+    g.add_argument("--auth-gdrive", action="store_true", help="(разширено) Google Drive API авторизация")
     g.add_argument("--test-telegram", action="store_true", help="тестово Telegram съобщение")
     g.add_argument("--list-devices", action="store_true", help="списък камери/микрофони")
     g.add_argument("--calibrate", type=float, nargs="?", const=30.0, metavar="SEC", help="live стойности на сензорите")
     g.add_argument("--status", action="store_true", help="статус на работещата инстанция")
     g.add_argument("--stop", action="store_true", help="спира работещата инстанция")
+    p.add_argument("--if-needed", action="store_true", help=argparse.SUPPRESS)
     args = p.parse_args(argv)
 
     cfg = build_config()
+    if args.setup_script:
+        return cmd_setup_script(cfg, only_if_needed=args.if_needed)
     if args.auth_gdrive:
         return cmd_auth_gdrive(cfg)
     if args.test_telegram:

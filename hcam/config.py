@@ -26,6 +26,53 @@ def load_dotenv(path: Path) -> None:
             os.environ[key] = value
 
 
+def set_env_var(path: Path, key: str, value: str) -> None:
+    """Записва/обновява KEY=VALUE в .env, като пази останалите редове."""
+    lines = path.read_text(encoding="utf-8").splitlines() if path.is_file() else []
+    out, found = [], False
+    for line in lines:
+        if line.split("=", 1)[0].strip() == key and not line.lstrip().startswith("#"):
+            out.append(f"{key}={value}")
+            found = True
+        else:
+            out.append(line)
+    if not found:
+        out.append(f"{key}={value}")
+    path.write_text("\n".join(out) + "\n", encoding="utf-8")
+    os.environ[key] = value
+
+
+UPLOAD_ALIASES = {
+    # Apps Script линк (без API ключове)
+    "appsscript": "gscript", "script": "gscript", "gscript": "gscript", "link": "gscript",
+    "drivelink": "gscript", "googledrivelink": "gscript",
+    # Google Drive API (OAuth, Google Cloud)
+    "googledriveapi": "gdrive", "gdriveapi": "gdrive", "driveapi": "gdrive", "gdrive": "gdrive",
+    "googledrive": "gdrive", "drive": "gdrive",
+    # Telegram
+    "telegram": "telegram", "tg": "telegram",
+}
+
+
+def parse_upload_targets(method: str) -> list[str]:
+    """'apps script, telegram' -> ['gscript', 'telegram']. 'none'/'' -> []."""
+    targets: list[str] = []
+    for part in re.split(r"[,+;]", method or ""):
+        key = re.sub(r"[\s_\-]", "", part.lower())
+        if key in ("", "none", "off", "local"):
+            continue
+        if key == "both":
+            names = ["gdrive", "telegram"]
+        elif key in UPLOAD_ALIASES:
+            names = [UPLOAD_ALIASES[key]]
+        else:
+            raise ValueError(f"Непознат UPLOAD_METHOD: '{part.strip()}'")
+        for n in names:
+            if n not in targets:
+                targets.append(n)
+    return targets
+
+
 def parse_gdrive_folder_id(value: str) -> str:
     """Приема ID или пълен линк към Google Drive папка и връща ID-то."""
     value = (value or "").strip()
@@ -81,7 +128,10 @@ class Config:
     ffmpeg_threads: int = 2
 
     # --- Качване ---
-    upload_method: str = "gdrive"  # gdrive | telegram | both | none
+    upload_method: str = "apps script"  # "apps script" | "google drive api" | "telegram" | списък със запетая | "none"
+    gdrive_script_url: str = ""
+    gdrive_script_secret: str = ""
+    gdrive_script_max_mb: float = 30.0  # Apps Script приема ~50 MB заявка (base64 = +33%)
     telegram_bot_token: str = ""
     telegram_chat_id: str = ""
     telegram_snapshot_on_trigger: bool = True
@@ -128,23 +178,7 @@ class Config:
 
     @property
     def upload_targets(self) -> list[str]:
-        m = (self.upload_method or "none").strip().lower().replace(" ", "")
-        aliases = {
-            "googledrive": "gdrive",
-            "drive": "gdrive",
-            "gdrive": "gdrive",
-            "telegram": "telegram",
-            "tg": "telegram",
-            "both": "both",
-            "none": "none",
-            "": "none",
-        }
-        m = aliases.get(m, m)
-        if m == "both":
-            return ["gdrive", "telegram"]
-        if m in ("gdrive", "telegram"):
-            return [m]
-        return []
+        return parse_upload_targets(self.upload_method)
 
     @property
     def telegram_configured(self) -> bool:

@@ -9,7 +9,7 @@ from pathlib import Path
 import requests
 
 from ..config import Config
-from ..winutils import find_ffmpeg, run_hidden
+from ..videotools import shrink_video
 from .base import AuthRequiredError, Uploader, UploadError
 
 log = logging.getLogger("hcam.telegram")
@@ -60,21 +60,6 @@ class TelegramUploader(Uploader):
         date, hh, mm, ss, _idx, cam = m.groups()
         return f"🎥 {cam} | {date} {hh}:{mm}:{ss}"
 
-    def _shrink(self, path: Path) -> Path | None:
-        ffmpeg = find_ffmpeg(self.cfg.ffmpeg_path, self.cfg.base_dir)
-        if not ffmpeg:
-            return None
-        out = self.cfg.tmp_dir / f"tg_{path.stem}.mp4"
-        cmd = [ffmpeg, "-y", "-hide_banner", "-loglevel", "error", "-i", str(path),
-               "-vf", "scale=-2:480", "-c:v", "libx264", "-preset", "veryfast", "-crf", "32",
-               "-threads", str(self.cfg.ffmpeg_threads), "-c:a", "aac", "-b:a", "64k",
-               "-movflags", "+faststart", str(out)]
-        res = run_hidden(cmd, timeout=3600)
-        if res.returncode != 0 or not out.is_file():
-            out.unlink(missing_ok=True)
-            return None
-        return out
-
     def upload(self, path: Path, date: str) -> str:  # noqa: ARG002
         caption = self.caption_for(path)
         send = path
@@ -82,7 +67,7 @@ class TelegramUploader(Uploader):
         try:
             if path.stat().st_size > self.max_bytes:
                 log.info("Клипът е > %.0f MB — компресирам копие за Telegram", self.cfg.telegram_max_mb)
-                shrunk = self._shrink(path)
+                shrunk = shrink_video(self.cfg, path, prefix="tg")
                 if shrunk is None or shrunk.stat().st_size > self.max_bytes:
                     self.send_message(f"{caption}\n⚠ Клипът е твърде голям за Telegram — запазен е локално.")
                     return "too_large"

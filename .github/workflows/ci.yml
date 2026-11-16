@@ -26,3 +26,5 @@ jobs:
           python main.py --help
       - name: Pipeline smoke test (no hardware)
         run: python tests/smoke_test.py
+      - name: Apps Script uploader test (fake server)
+        run: python tests/apps_script_test.py
